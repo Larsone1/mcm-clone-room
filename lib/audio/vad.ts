@@ -5,7 +5,7 @@ export class SimpleVAD {
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private dataArray: Uint8Array | null = null;
+  private dataArray: any = null;
   private rafId: number = 0;
   private onVadStateChange: VadStateChangeCallback;
   private energyThreshold: number;
@@ -41,7 +41,7 @@ export class SimpleVAD {
     if (!this.analyser || !this.dataArray) return;
 
     this.analyser.getByteFrequencyData(this.dataArray);
-    const energy = this.dataArray.reduce((sum, val) => sum + val, 0) / this.dataArray.length;
+    const energy = this.dataArray.reduce((sum: number, val: number) => sum + val, 0) / this.dataArray.length;
 
     if (energy > this.energyThreshold) {
       this.silenceStartTime = 0;
