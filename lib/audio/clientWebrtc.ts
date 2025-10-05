@@ -1,57 +1,55 @@
-import { useAppStore } from '@/lib/store';
+type SpeakOpts = {
+  muted?: boolean;
+  lang?: string;
+  onViseme?: (v: number) => void;
+  onEnd?: () => void;
+};
 
-const WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBRTC_URL || 'ws://localhost:8443/realtime';
+let speaking = false;
+let jitterTimer: any = null;
 
-export class WebRTCClient {
-  private ws: WebSocket | null = null;
+export function speakWithFallback(text: string, opts: SpeakOpts = {}) {
+  cancelSpeech();
+  speaking = true;
 
-  connect(onFallback: () => void) {
-    return new Promise<void>((resolve, reject) => {
-      this.ws = new WebSocket(WEBSOCKET_URL);
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = opts.lang ?? 'pl-PL';
+  utter.volume = opts.muted ? 0 : 1;
 
-      this.ws.onopen = () => {
-        console.log('WebSocket connected');
-        useAppStore.getState().actions.setConnectionState('connected');
-        resolve();
-      };
+  // proste mapowanie na „otwarcie ust” według znaków
+  const vowels = 'aeiouyąęóAEIOUYĄĘÓ';
+  let firstBoundary = true;
 
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.visemes) {
-            useAppStore.getState().actions.setVisemes(data.visemes);
-          }
-          if (data.text) {
-            useAppStore.getState().actions.setLastSpokenText(data.text);
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
-        }
-      };
+  utter.onboundary = (e: any) => {
+    const ch = text.slice(e.charIndex, e.charIndex + (e.charLength || 1));
+    const amp = vowels.includes(ch) ? 0.85 : 0.35;
+    opts.onViseme?.(amp);
+    if (firstBoundary) { firstBoundary = false; }
+  };
 
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        onFallback();
-        reject(error);
-      };
+  utter.onend = () => {
+    speaking = false;
+    clearInterval(jitterTimer);
+    opts.onViseme?.(0);
+    opts.onEnd?.();
+  };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        if (useAppStore.getState().isCallActive) {
-            onFallback();
-        }
-      };
-    });
+  // lekki jitter, żeby uniknąć „martwych” momentów
+  clearInterval(jitterTimer);
+  jitterTimer = setInterval(() => {
+    if (!speaking) return;
+    opts.onViseme?.(Math.random() * 0.12);
+  }, 90);
+
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utter);
+}
+
+export function cancelSpeech() {
+  if (speaking) {
+    speaking = false;
+    try { window.speechSynthesis.cancel(); } catch {}
   }
-
-  send(data: any) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
-    }
-  }
-
-  disconnect() {
-    this.ws?.close();
-    this.ws = null;
-  }
+  clearInterval(jitterTimer);
+  jitterTimer = null;
 }
